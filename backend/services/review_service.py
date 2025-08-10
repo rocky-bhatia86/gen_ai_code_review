@@ -299,7 +299,9 @@ class ReviewService:
                         "line": 16,
                         "code_snippet": "actual problematic code here",
                         "severity": "HIGH|MEDIUM|LOW",
-                        "message": "**ISSUE_TYPE**: Brief problem description.\n\n**Current code:**\n```language\nproblematic code here\n```\n\n**Recommended fix:**\n```language\nfixed code here\n```\n\n**Why:** Brief technical explanation."
+                        "issue": "Brief problem description (e.g., 'Code injection vulnerability due to use of eval()')",
+                        "impact": "Brief explanation of what could go wrong",
+                        "fix": "Specific recommended solution with code examples"
                     }
                 ]
             }
@@ -308,11 +310,7 @@ class ReviewService:
             
             user_prompt = f"Review this {context} for technical issues. Pay attention to the line numbers in @@ markers and focus on + lines:\n\n{diff_content}"
             
-            # Debug logging
-            print(f"🔍 DEBUG: Sending diff to AI for review...")
-            print(f"   Context: {context}")
-            print(f"   Diff length: {len(diff_content)} characters")
-            print(f"   Diff preview: {diff_content[:200]}...")
+
             
             completion = self.client.chat.completions.create(
                 model=self.model,
@@ -329,34 +327,16 @@ class ReviewService:
             try:
                 content = completion.choices[0].message.content
                 
-                # Debug logging
-                print(f"🤖 DEBUG: AI Response received:")
-                print(f"   Response length: {len(content)} characters")
-                print(f"   Response preview: {content[:300]}...")
-                
                 # Handle JSON wrapped in code blocks
                 if '```json' in content:
                     # Extract JSON from code block
                     json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
                     if json_match:
                         content = json_match.group(1)
-                        print(f"📦 DEBUG: Extracted JSON from code block")
                 
                 result = json.loads(content)
-                
-                # Debug logging for line comments
-                line_comments = result.get('line_comments', [])
-                print(f"💬 DEBUG: Parsed {len(line_comments)} line comments:")
-                for i, comment in enumerate(line_comments[:5], 1):  # Show first 5
-                    line_num = comment.get('line', '?')
-                    file_path = comment.get('file', '?')
-                    severity = comment.get('severity', '?')
-                    print(f"   {i}. {file_path}:{line_num} [{severity}]")
-                
                 return result
-            except json.JSONDecodeError as e:
-                print(f"❌ DEBUG: JSON parsing failed: {e}")
-                print(f"   Raw content: {content}")
+            except json.JSONDecodeError:
                 # Fallback if AI doesn't return proper JSON
                 return {
                     "overall_review": completion.choices[0].message.content,
@@ -364,9 +344,6 @@ class ReviewService:
                 }
                 
         except Exception as e:
-            print(f"❌ DEBUG: AI review exception: {e}")
-            import traceback
-            traceback.print_exc()
             return {
                 "overall_review": f"AI review failed: {str(e)}",
                 "line_comments": []
@@ -428,7 +405,9 @@ class ReviewService:
                             "line": current_new_line,  # ✅ CORRECT! NEW file line number
                             "code_snippet": line[1:].strip(),  # Remove the '+' prefix
                             "severity": severity,
-                            "message": message
+                            "issue": message,
+                            "impact": "This could cause issues in production",
+                            "fix": "Consider refactoring this code for better practices"
                         })
                         break  # Only add one comment per line
                         
