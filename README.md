@@ -9,8 +9,9 @@ An intelligent code review system that integrates with GitHub to automatically r
 - **Automatic Review**: GitHub webhook integration for PR reviews
 
 ### 🎯 **Smart AI Reviews**
-- Powered by OpenAI GPT-4o-mini
+- Powered by OpenAI
 - Analyzes code quality, security, and best practices
+- Suggest recommended code 
 - Supports all major programming languages
 - Fallback mock mode when API keys aren't configured
 
