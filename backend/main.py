@@ -78,9 +78,7 @@ async def review_uploaded_file(file: UploadFile = File(...)):
 
 @app.post("/webhook/github")
 async def github_webhook(request: Request):
-    """  
-    Handle GitHub webhook events for pull requests
-    """
+    """Handle GitHub webhook events for pull requests"""
     try:
         # Get raw payload for signature verification
         payload_body = await request.body()
@@ -102,7 +100,9 @@ async def github_webhook(request: Request):
         if pr_info["action"] not in ["opened", "synchronize"]:
             return {"message": f"Ignored action: {pr_info['action']}"}
         
-        # Get PR diff
+        print(f"Processing PR #{pr_info['pr_number']}: {pr_info['pr_title']}")
+        
+        # Get PR diff for AI analysis
         diff_content = github_service.get_pr_diff(
             pr_info["repo_owner"], 
             pr_info["repo_name"], 
@@ -112,36 +112,54 @@ async def github_webhook(request: Request):
         if not diff_content:
             return {"message": "Could not fetch PR diff"}
         
-        # Review the diff
-        review = review_service.review_code(diff_content, "Git diff")
+        # Get PR files for inline comment mapping
+        pr_files = github_service.get_pr_files(
+            pr_info["repo_owner"],
+            pr_info["repo_name"],
+            pr_info["pr_number"]
+        )
         
-        # Post review as comment
-        comment_body = f"""## 🤖 AI Code Review
+        # Review the diff with AI
+        print("Starting AI technical review...")
+        review_result = review_service.review_pr_diff(diff_content, "PR diff")
         
+        # Create inline comments from AI review
+        inline_comments = github_service.create_inline_comments(review_result, pr_files)
+        
+        # Create overall review summary
+        overall_review = f"""## 🤖 AI Technical Code Review
+
 **Pull Request:** {pr_info['pr_title']}
 **Author:** @{pr_info['author']}
 
-{review}
+{review_result['overall_review']}
+
+**Technical Issues Found:** {len(inline_comments)} inline comments
 
 ---
-*Automated review by AI Code Review System*
+*Automated technical review focusing on syntax, best practices, security, and performance*
         """
         
-        success = github_service.post_pr_comment(
+        # Post review with inline comments to GitHub
+        success = github_service.post_pr_review(
             pr_info["repo_owner"],
             pr_info["repo_name"], 
             pr_info["pr_number"],
-            comment_body
+            overall_review,
+            inline_comments
         )
         
         if success:
-            return {"message": "Review posted successfully"}
+            print(f"Review completed successfully for PR #{pr_info['pr_number']}")
+            return {"message": "Technical review completed successfully"}
         else:
-            return {"message": "Failed to post review"}
+            print(f"Failed to post review for PR #{pr_info['pr_number']}")
+            return {"message": "Review generated but failed to post to GitHub"}
             
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
     except Exception as e:
+        print(f"Webhook processing error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Webhook processing failed: {str(e)}")
 
 @app.post("/review/pr", response_model=ReviewResponse)
@@ -206,11 +224,28 @@ def review_pr_manually(request: PRReviewRequest):
         else:
             raise HTTPException(status_code=400, detail="No content to review")
         
-        # Review the content
-        review = review_service.review_code(content_to_review, context)
+        # Review the content with critical focus
+        if url_type == "pull" and pr_number:
+            # Use diff-specific review for PRs
+            review_result = review_service.review_pr_diff(content_to_review, context)
+            
+            # Format line comments for display
+            line_comments_text = ""
+            if review_result.get("line_comments"):
+                line_comments_text = "\n\n## 🚨 Critical Issues:\n"
+                for i, comment in enumerate(review_result["line_comments"], 1):
+                    line_comments_text += f"\n**{i}. Line {comment['line']} - {comment['severity']}**\n"
+                    line_comments_text += f"- **Issue**: {comment['issue']}\n"
+                    line_comments_text += f"- **Impact**: {comment['impact']}\n"
+                    line_comments_text += f"- **Fix**: {comment['fix']}\n"
+            
+            review_text = f"{review_result['overall_review']}{line_comments_text}"
+        else:
+            # Use regular review for branch/file content
+            review_text = review_service.review_code(content_to_review, context)
         
         return ReviewResponse(
-            review=f"🔍 **Review for:** {request.pr_url}\n\n{review}"
+            review=f"🔍 **Critical Review for:** {request.pr_url}\n\n{review_text}"
         )
         
     except ValueError:
@@ -225,6 +260,9 @@ def get_status():
     return {
         "openai_configured": settings.openai_enabled,
         "github_configured": settings.github_enabled,
-        "openai_model": settings.OPENAI_MODEL,
+        "openai_type": settings.OPENAI_API_TYPE,
+        "is_azure_openai": settings.is_azure_openai,
+        "model_or_deployment": settings.AZURE_OPENAI_DEPLOYMENT_NAME if settings.is_azure_openai else settings.OPENAI_MODEL,
+        "azure_endpoint": settings.AZURE_OPENAI_ENDPOINT if settings.is_azure_openai else None,
         "server": f"{settings.HOST}:{settings.PORT}"
     }

@@ -25,11 +25,18 @@ class GitHubWebhookEvent(BaseModel):
 class PRReviewRequest(BaseModel):
     """Request model for PR review"""
     pr_url: str
-    diff_content: str
+    diff_content: Optional[str] = None
 
 class ReviewComment(BaseModel):
     """Model for review comments to post back to GitHub"""
     body: str
     path: str
-    line: int
-    side: str = "RIGHT"  # RIGHT for new lines, LEFT for original 
+    position: int  # Position in the diff (required by GitHub API)
+    
+    def dict(self):
+        """Convert to dict format expected by GitHub API"""
+        return {
+            "body": self.body,
+            "path": self.path,
+            "position": self.position
+        } 

@@ -224,3 +224,4 @@ The web UI shows real-time status:
 - Real AI reviews require OpenAI API key and billing
 - GitHub integration is optional - manual reviews work independently
 - All code processing happens server-side for security
+# gen_ai_code_review
