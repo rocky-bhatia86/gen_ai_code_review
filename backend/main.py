@@ -25,7 +25,7 @@ app = FastAPI(
 # Add CORS middleware for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_origins=["http://localhost:3000", "http://145.132.72.12:3000"],  # React dev server + Azure VM
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -120,7 +120,6 @@ async def github_webhook(request: Request):
         )
         
         # Review the diff with AI
-        print("Starting AI technical review...")
         review_result = review_service.review_pr_diff(diff_content, "PR diff")
         
         # Create inline comments from AI review
