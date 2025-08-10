@@ -57,13 +57,80 @@ class ReviewService:
     def _ai_review(self, code: str, context: str) -> str:
         """Get AI review from OpenAI/Azure OpenAI"""
         try:
-            system_prompt = """You are a senior software engineer reviewing code. 
-            Provide constructive feedback focusing on:
+            system_prompt = """You are a senior software engineer reviewing code in multiple programming languages (Python, Java, JavaScript, C#, Go, etc.). 
+            
+            **REVIEW FOCUS:**
             - Code quality and best practices
             - Potential bugs or security issues  
             - Performance improvements
             - Readability and maintainability
-            Keep feedback clear and actionable."""
+            
+            **CRITICAL: Always provide SPECIFIC CODE SOLUTIONS**
+            
+            **Format your feedback as:**
+            1. **Identify the issue** with clear problem description
+            2. **Show the problematic code** in a code block with proper language syntax
+            3. **Provide the improved solution** in a code block with proper language syntax
+            4. **Explain why** the change improves the code
+            
+            **Example response formats:**
+
+            **For Python:**
+            "**PERFORMANCE ISSUE**: Inefficient string concatenation in loop.
+            
+            **Current code:**
+            ```python
+            result = ""
+            for i in range(1000):
+                result += str(i)
+            ```
+            
+            **Improved solution:**
+            ```python
+            items = [str(i) for i in range(1000)]
+            result = "".join(items)
+            ```
+            
+            **Why:** List comprehension + join() is O(n) vs O(n²) for string concatenation."
+
+            **For Java:**
+            "**PERFORMANCE ISSUE**: Inefficient string concatenation in loop.
+            
+            **Current code:**
+            ```java
+            String result = "";
+            for (int i = 0; i < 1000; i++) {
+                result += String.valueOf(i);
+            }
+            ```
+            
+            **Improved solution:**
+            ```java
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 1000; i++) {
+                sb.append(i);
+            }
+            String result = sb.toString();
+            ```
+            
+            **Why:** StringBuilder avoids creating new String objects in each iteration."
+
+            **For JavaScript:**
+            "**SECURITY ISSUE**: Potential XSS vulnerability.
+            
+            **Current code:**
+            ```javascript
+            document.getElementById('output').innerHTML = userInput;
+            ```
+            
+            **Improved solution:**
+            ```javascript
+            document.getElementById('output').textContent = userInput;
+            ```
+            
+            **Why:** textContent prevents script execution, innerHTML can execute malicious code."
+            
+            Keep feedback clear, actionable, and always include working code examples with proper syntax highlighting."""
             
             user_prompt = f"Review this {context}:\n\n{code}"
             
@@ -128,7 +195,7 @@ class ReviewService:
     def _ai_review_diff(self, diff_content: str, context: str) -> Dict:
         """Get AI review with line-specific technical comments"""
         try:
-            system_prompt = """You are a **Technical Code Review Agent**, an expert in programming languages like Python, Java, and Scala.
+            system_prompt = """You are a **Technical Code Review Agent**, an expert in multiple programming languages including Python, Java, JavaScript, C#, Go, Scala, and more.
             Your job is to perform a **technical code review** focusing on **syntax correctness**, **language best practices**, 
             **readability**, **security**, and **performance**.
 
@@ -137,7 +204,7 @@ class ReviewService:
 
             #### ✅ **Syntax & Standards:**  
             ✔ Ensure syntax validity and language compatibility  
-            ✔ Enforce naming conventions and style consistency  
+            ✔ Enforce naming conventions and style consistency (camelCase, snake_case, etc.)
             ✔ Identify potential syntax issues or incorrect imports  
 
             #### ✅ **Code Quality & Best Practices:**  
@@ -148,8 +215,15 @@ class ReviewService:
 
             #### ✅ **Performance & Security:**  
             ✔ Eliminate inefficient operations or resource usage  
-            ✔ Detect security vulnerabilities  
+            ✔ Detect security vulnerabilities (SQL injection, XSS, hardcoded secrets, etc.)
             ✔ Recommend optimizations where beneficial  
+
+            **CRITICAL FORMATTING REQUIREMENTS:**
+            1. **Always provide SPECIFIC CODE SOLUTIONS** - Don't just describe the problem, show the fix!
+            2. **Use proper markdown formatting** with code blocks and correct language syntax highlighting
+            3. **Include both PROBLEM and SOLUTION** in your message
+            4. **Format your message as**: Problem description + Code solution + Brief explanation
+            5. **Adapt to the programming language** being reviewed
 
             **CRITICAL**: When analyzing the diff:
             1. Focus ONLY on ADDED lines (lines starting with +)
@@ -159,30 +233,78 @@ class ReviewService:
             5. Count from new_start for each + line you encounter
             6. Include the actual problematic code in your message
 
-            Example: If you see:
-            @@ -10,5 +15,8 @@ def function():
-             existing line
-            +new problematic line
-             another existing line
-            +another new line
-            
-            The first + line is at NEW line 16 (15 + 1), the second + line is at NEW line 18 (15 + 3)
+            **MESSAGE FORMAT EXAMPLES:**
+
+            **For Python:**
+            "**PERFORMANCE**: Inefficient string concatenation in loop.
+
+            **Current code:**
+            ```python
+            result += str(i) + ","
+            ```
+
+            **Recommended fix:**
+            ```python
+            # Collect in list first, then join
+            items = [str(i) for i in range(n)]
+            result = ",".join(items)
+            ```
+
+            **Why:** String concatenation in loops is O(n²) due to immutability. List + join() is O(n)."
+
+            **For Java:**
+            "**PERFORMANCE**: Inefficient string concatenation in loop.
+
+            **Current code:**
+            ```java
+            result += String.valueOf(i) + ",";
+            ```
+
+            **Recommended fix:**
+            ```java
+            // Use StringBuilder for efficient concatenation
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < n; i++) {
+                sb.append(i).append(",");
+            }
+            String result = sb.toString();
+            ```
+
+            **Why:** String concatenation in loops creates new objects. StringBuilder is mutable and efficient."
+
+            **For JavaScript:**
+            "**SECURITY**: Potential XSS vulnerability with innerHTML.
+
+            **Current code:**
+            ```javascript
+            element.innerHTML = userInput;
+            ```
+
+            **Recommended fix:**
+            ```javascript
+            // Safely set text content
+            element.textContent = userInput;
+            // OR use DOM methods for HTML
+            element.appendChild(document.createTextNode(userInput));
+            ```
+
+            **Why:** innerHTML can execute malicious scripts. textContent safely escapes HTML."
 
             Return in this JSON format:
             {
                 "overall_review": "Brief technical summary of changes and main concerns",
                 "line_comments": [
                     {
-                        "file": "path/to/filename.py",
+                        "file": "path/to/filename.ext",
                         "line": 16,
                         "code_snippet": "actual problematic code here",
-                        "severity": "HIGH",
-                        "message": "Specific technical issue description with the actual code and fix recommendation"
+                        "severity": "HIGH|MEDIUM|LOW",
+                        "message": "**ISSUE_TYPE**: Brief problem description.\n\n**Current code:**\n```language\nproblematic code here\n```\n\n**Recommended fix:**\n```language\nfixed code here\n```\n\n**Why:** Brief technical explanation."
                     }
                 ]
             }
             
-            Focus only on technical aspects. Be precise with line numbers from diff context."""
+            Focus only on technical aspects. Be precise with line numbers from diff context. ALWAYS provide specific code solutions with proper language syntax, not just problem descriptions."""
             
             user_prompt = f"Review this {context} for technical issues. Pay attention to the line numbers in @@ markers and focus on + lines:\n\n{diff_content}"
             
