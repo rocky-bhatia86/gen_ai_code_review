@@ -10,8 +10,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/rocky-bhatia86/ai-code-review-system.git
-cd ai-code-review-system
+git clone https://github.com/rocky-bhatia86/gen_ai_code_review.git
+cd gen_ai_code_review
 
 # Create Python virtual environment
 python3 -m venv venv
@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 ```bash
 # Copy the example environment file
-cp env.example .env
+cp ../env.example .env
 
 # Edit .env with your actual values:
 # OPENAI_API_KEY=your_openai_api_key_here
@@ -34,6 +34,8 @@ cp env.example .env
 ```
 
 ## 3. Start Backend Server
+
+python3 start_production.py 
 
 ```bash
 # From the backend directory
