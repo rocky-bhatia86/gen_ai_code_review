@@ -139,53 +139,152 @@ class GitHubService:
 
     def create_inline_comments(self, ai_review_result: Dict, pr_files: List[Dict]) -> List[ReviewComment]:
         """
-        Create inline comments from AI review results
-        Maps AI suggestions to specific file lines for GitHub PR review
+        Convert AI review results to GitHub inline comments
+        
+        Args:
+            ai_review_result: Dict with 'line_comments' array
+            pr_files: List of PR file data from GitHub API
+            
+        Returns:
+            List of ReviewComment objects for GitHub API
         """
         comments = []
         line_comments = ai_review_result.get("line_comments", [])
         
-        # Create a mapping of filenames for quick lookup
         file_map = {f["filename"]: f for f in pr_files}
         
         for comment_data in line_comments:
             file_path = comment_data.get("file")
             line_number = comment_data.get("line")
             
-            if file_path in file_map and line_number:
-                # Calculate GitHub diff position
-                position = self._calculate_position(file_map[file_path], line_number)
+            if not file_path or not line_number:
+                continue
                 
-                if position > 0:  # Only add comment if we found a valid position
-                    # Include code snippet if available
-                    code_snippet = comment_data.get("code_snippet", "")
-                    message = comment_data.get("message", "")
-                    
-                    if code_snippet:
-                        body = f"**{comment_data.get('severity', 'SUGGESTION')}**: {message}\n\n```python\n{code_snippet}\n```"
-                    else:
-                        body = f"**{comment_data.get('severity', 'SUGGESTION')}**: {message}"
-                    
-                    comment = ReviewComment(
-                        body=body,
-                        path=file_path,
-                        position=position
-                    )
-                    comments.append(comment)
-        
+            if file_path not in file_map:
+                continue
+
+            # Calculate GitHub diff position
+            position = self._calculate_position(file_map[file_path], line_number)
+            
+            if position <= 0:
+                continue
+
+            # Handle both old and new AI response formats
+            message = self._format_comment_message(comment_data)
+            
+            if not message:
+                continue
+            
+            comment = ReviewComment(
+                body=message,
+                path=file_path,
+                position=position
+            )
+            comments.append(comment)
         return comments
     
+    def _format_comment_message(self, comment_data: Dict) -> str:
+        """
+        Format comment message from AI response data.
+        Handles both old format (single 'message' field) and new format (issue/impact/fix fields)
+        """
+        # New structured format with separate fields
+        if "issue" in comment_data or "impact" in comment_data or "fix" in comment_data:
+            severity = comment_data.get('severity', 'SUGGESTION')
+            issue = comment_data.get('issue', '')
+            impact = comment_data.get('impact', '')
+            fix = comment_data.get('fix', '')
+            code_snippet = comment_data.get('code_snippet', '')
+            
+            # Build structured message
+            parts = []
+            
+            if issue:
+                parts.append(f"**{severity}**: {issue}")
+            
+            if code_snippet:
+                # Try to detect language from code snippet
+                language = self._detect_language(code_snippet)
+                parts.append(f"\n**Current code:**\n```{language}\n{code_snippet}\n```")
+            
+            if impact:
+                parts.append(f"\n**Impact:** {impact}")
+                
+            if fix:
+                parts.append(f"\n**Recommended fix:** {fix}")
+            
+            return "\n".join(parts) if parts else ""
+        
+        # Old format with single 'message' field
+        elif "message" in comment_data:
+            message = comment_data.get("message", "")
+            severity = comment_data.get('severity', 'SUGGESTION')
+            code_snippet = comment_data.get('code_snippet', '')
+            
+            if code_snippet and code_snippet not in message:
+                language = self._detect_language(code_snippet)
+                return f"**{severity}**: {message}\n\n```{language}\n{code_snippet}\n```"
+            else:
+                return f"**{severity}**: {message}"
+        
+        # Fallback: try to construct from any available fields
+        else:
+            severity = comment_data.get('severity', 'SUGGESTION')
+            code_snippet = comment_data.get('code_snippet', '')
+            
+            if code_snippet:
+                language = self._detect_language(code_snippet)
+                return f"**{severity}**: Code review suggestion\n\n```{language}\n{code_snippet}\n```"
+            
+            return f"**{severity}**: Code review suggestion"
+    
+    def _detect_language(self, code_snippet: str) -> str:
+        """Detect programming language from code snippet for syntax highlighting"""
+        code_lower = code_snippet.lower()
+        
+        # Python indicators
+        if any(keyword in code_lower for keyword in ['def ', 'import ', 'from ', 'print(', '__init__']):
+            return 'python'
+        
+        # JavaScript/TypeScript indicators  
+        elif any(keyword in code_lower for keyword in ['function ', 'const ', 'let ', 'var ', '=>', 'console.log']):
+            return 'javascript'
+            
+        # Java indicators
+        elif any(keyword in code_lower for keyword in ['public class', 'private ', 'public static', 'system.out']):
+            return 'java'
+            
+        # C/C++ indicators
+        elif any(keyword in code_lower for keyword in ['#include', 'int main', 'printf(', 'cout <<']):
+            return 'cpp'
+            
+        # Go indicators
+        elif any(keyword in code_lower for keyword in ['func ', 'package ', 'import (', 'fmt.print']):
+            return 'go'
+            
+        # Default to generic code highlighting
+        else:
+            return 'text'
+
     def _calculate_position(self, file_data: Dict, target_line: int) -> int:
         """
         Calculate GitHub diff position for a given NEW file line number
         Maps NEW file line numbers to GitHub diff positions
+        
+        Args:
+            file_data: GitHub file data with patch information
+            target_line: NEW file line number to find
+            
+        Returns:
+            GitHub diff position (1-based) or 0 if not found
         """
         if "patch" not in file_data:
-            return 0  # Return 0 for invalid position
+            return 0
             
         patch_lines = file_data["patch"].split('\n')
         position = 0
         current_new_line = 0
+        found_hunk = False
         
         for line in patch_lines:
             position += 1
@@ -196,6 +295,7 @@ class GitHubService:
                 match = re.search(r'@@\s*-\d+(?:,\d+)?\s*\+(\d+)(?:,\d+)?\s*@@', line)
                 if match:
                     current_new_line = int(match.group(1)) - 1  # Start before the first line
+                    found_hunk = True
                 else:
                     continue
                     
@@ -212,7 +312,7 @@ class GitHubService:
             elif line.startswith(' '):
                 # This is a context line (unchanged) - increment new line counter
                 current_new_line += 1
-        
+            
         return 0  # Return 0 if line not found
 
 # Global service instance  
